@@ -1,6 +1,11 @@
 /* ── Orbit Resume Matcher — Frontend Logic ─────────────────────────── */
 
-const API_URL = (window.APP_CONFIG && window.APP_CONFIG.API_URL) || "http://localhost:8000";
+const configuredApiUrl = window.APP_CONFIG && typeof window.APP_CONFIG.API_URL === "string"
+  ? window.APP_CONFIG.API_URL.trim()
+  : null;
+const API_URL = configuredApiUrl === null
+  ? "http://localhost:8000"
+  : configuredApiUrl.replace(/\/$/, "");
 
 /* ── State ─────────────────────────────────────────────────────────── */
 const state = {
