@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+gunicorn
+python-multipart
+PyMuPDF
+python-dotenv

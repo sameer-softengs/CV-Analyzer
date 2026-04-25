@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Orbit Resume Matcher — Upload your resume and get AI-powered ATS scoring, keyword gap analysis, and actionable improvement tips in seconds." />
+  <meta name="theme-color" content="#050816" />
+  <title>Orbit Resume Matcher — AI ATS Analyzer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+  <!-- Animated background layers -->
+  <div class="bg-layer" aria-hidden="true">
+    <div class="stars"></div>
+    <div class="nebula nebula-one"></div>
+    <div class="nebula nebula-two"></div>
+    <div class="nebula nebula-three"></div>
+    <div class="grid-overlay"></div>
+  </div>
+
+  <nav class="nav-bar fade-in">
+    <a href="#" class="logo">
+      <div class="logo-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+      </div>
+      Orbit
+    </a>
+    <div class="hero-badge">
+      <span class="badge-dot pulse-dot"></span>
+      AI-Powered ATS
+    </div>
+  </nav>
+
+  <main class="container">
+
+    <!-- ── Hero ───────────────────────────────────────────────── -->
+    <header class="hero slide-up">
+      <h1>Optimize Your <span class="gradient-text">Resume</span></h1>
+      <p class="subtitle">Get instant AI-driven ATS scoring, keyword gap analysis, and actionable improvement tips to land your dream job.</p>
+      <div class="hero-stats">
+        <div class="hero-stat"><span class="stat-num">98%</span><span class="stat-label">Accuracy</span></div>
+        <div class="hero-stat-divider"></div>
+        <div class="hero-stat"><span class="stat-num">AI</span><span class="stat-label">Analysis</span></div>
+        <div class="hero-stat-divider"></div>
+        <div class="hero-stat"><span class="stat-num">&lt;5s</span><span class="stat-label">Speed</span></div>
+      </div>
+    </header>
+
+    <!-- ── Upload Form ─────────────────────────────────────────── -->
+    <section class="panel glass form-panel slide-up" style="animation-delay: 0.1s;">
+      <div class="section-header">
+        <div class="section-icon-wrap">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        </div>
+        <div>
+          <h2>Analyze Resume</h2>
+          <p class="section-sub">Upload your CV as a PDF to begin intelligence matching</p>
+        </div>
+      </div>
+
+      <form id="analyzeForm" class="form-grid" novalidate>
+
+        <!-- File upload -->
+        <label class="field file-field" id="dropZone">
+          <input id="cvFile" name="cvFile" type="file" accept=".pdf" required aria-label="Resume PDF upload" />
+          <div class="drop-zone-inner">
+            <div class="drop-icon-wrap" id="dropIcon">
+              <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            </div>
+            <div class="drop-text">
+              <span class="drop-title" id="dropTitle">Drop your resume here</span>
+              <span class="drop-hint" id="dropHint">or click to browse · PDF only · Max 10 MB</span>
+            </div>
+          </div>
+        </label>
+
+        <!-- LLM Mode toggle -->
+        <div class="field">
+          <span class="field-label">AI Analysis Mode</span>
+          <div class="toggle-group" role="group" aria-label="LLM mode selection">
+            <button type="button" class="toggle active" data-llm="auto" id="llmAuto">⚡ Auto</button>
+            <button type="button" class="toggle" data-llm="on" id="llmOn">🤖 AI On</button>
+            <button type="button" class="toggle" data-llm="off" id="llmOff">📊 ATS Only</button>
+          </div>
+          <input type="hidden" id="useLlm" name="use_llm" value="auto" />
+        </div>
+
+        <!-- Submit -->
+        <div class="action-row">
+          <button id="analyzeBtn" type="submit">
+            <span class="btn-text">Launch Analysis</span>
+            <span class="btn-loader hidden" id="btnLoader"></span>
+          </button>
+          <p id="statusText" class="status" role="status" aria-live="polite"></p>
+        </div>
+
+      </form>
+    </section>
+
+    <!-- ── Results (hidden until analysis) ────────────────────── -->
+    <section id="results" class="results-section hidden" aria-live="polite">
+
+      <!-- Score cards -->
+      <div class="metrics-grid">
+        <article class="panel glass metric-card pop-in" id="scoreCard">
+          <div class="metric-icon-wrap">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+          </div>
+          <h3>ATS Score</h3>
+          <div class="score-ring-wrap">
+            <svg class="score-ring" viewBox="0 0 80 80" aria-hidden="true">
+              <circle class="ring-bg" cx="40" cy="40" r="33" />
+              <circle class="ring-fill" id="ringFill" cx="40" cy="40" r="33"
+                stroke-dasharray="207.35" stroke-dashoffset="207.35" />
+            </svg>
+            <p class="metric-value" id="atsScore">—</p>
+          </div>
+        </article>
+
+        <article class="panel glass metric-card pop-in" id="gradeCard" style="animation-delay: 0.1s;">
+          <div class="metric-icon-wrap">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>
+          </div>
+          <h3>Grade</h3>
+          <p class="metric-value" id="grade">—</p>
+          <p class="metric-sub" id="gradeSub"></p>
+        </article>
+
+        <article class="panel glass metric-card pop-in" id="llmCard" style="animation-delay: 0.2s;">
+          <div class="metric-icon-wrap">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
+          </div>
+          <h3>AI Confidence</h3>
+          <p class="metric-value" id="confidence">—</p>
+          <p class="metric-sub" id="llmModel"></p>
+        </article>
+
+        <article class="panel glass metric-card pop-in" id="expCard" style="animation-delay: 0.3s;">
+          <div class="metric-icon-wrap">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          </div>
+          <h3>Experience</h3>
+          <p class="metric-value" id="expYears">—</p>
+          <p class="metric-sub">years detected</p>
+        </article>
+      </div>
+
+      <!-- LLM Summary banner -->
+      <div id="llmSummaryBanner" class="panel glass llm-banner hidden pop-in">
+        <div class="llm-banner-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>
+        </div>
+        <div class="llm-banner-body">
+          <h4>AI Insight</h4>
+          <p id="llmSummaryText"></p>
+        </div>
+      </div>
+
+      <!-- Critical Mistakes -->
+      <div id="mistakesSection" class="panel glass mistakes-panel hidden pop-in">
+        <div class="card-header">
+          <svg class="card-header-icon danger" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <h3 class="danger">Critical Mistakes causing Low Rating</h3>
+        </div>
+        <ul id="mistakesList" class="mistake-list"></ul>
+      </div>
+
+      <!-- Strengths & Gaps -->
+      <div id="strengthsGapsRow" class="two-col hidden pop-in">
+        <article class="panel glass details-card">
+          <div class="card-header">
+            <svg class="card-header-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            <h3>Strengths</h3>
+          </div>
+          <ul id="strengthsList" class="fancy-list green"></ul>
+        </article>
+        <article class="panel glass details-card">
+          <div class="card-header">
+            <svg class="card-header-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <h3>Gaps Identified</h3>
+          </div>
+          <ul id="gapsList" class="fancy-list orange"></ul>
+        </article>
+      </div>
+
+      <!-- Charts -->
+      <div class="charts-grid pop-in">
+        <article class="panel glass chart-card">
+          <h3 class="chart-title">Component Radar</h3>
+          <div class="chart-wrap"><canvas id="radarChart"></canvas></div>
+        </article>
+        <article class="panel glass chart-card">
+          <h3 class="chart-title">Score Breakdown</h3>
+          <div class="chart-wrap"><canvas id="barChart"></canvas></div>
+        </article>
+        <article class="panel glass chart-card">
+          <h3 class="chart-title">Keyword Coverage</h3>
+          <div class="chart-wrap"><canvas id="doughnutChart"></canvas></div>
+        </article>
+      </div>
+
+      <!-- Recommendations + Keywords -->
+      <div class="two-col pop-in">
+        <article class="panel glass details-card">
+          <div class="card-header">
+            <svg class="card-header-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+            <h3>Top Recommendations</h3>
+          </div>
+          <ol id="recommendationsList" class="rec-list"></ol>
+        </article>
+        <article class="panel glass details-card">
+          <div class="card-header">
+            <svg class="card-header-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <h3>Missing Sections</h3>
+          </div>
+          <div id="missingSections" class="tag-wrap"></div>
+          
+          <div class="card-header" style="margin-top: 2rem;">
+            <svg class="card-header-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z"/><path d="M7 7h.01"/></svg>
+            <h3>ATS Keywords to Add</h3>
+          </div>
+          <div id="missingKeywords" class="tag-wrap"></div>
+        </article>
+      </div>
+
+      <!-- Re-analyze CTA -->
+      <div class="cta-row pop-in">
+        <button id="reanalyzeBtn" class="btn-secondary" type="button">🔄 Analyze Another Resume</button>
+      </div>
+
+    </section>
+
+  </main>
+
+  <footer>
+    <p>&copy; 2026 Orbit AI Resume Matcher. All rights reserved.</p>
+  </footer>
+
+  <!-- Toast notification -->
+  <div id="toast" class="toast" role="alert"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="/config.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
+
