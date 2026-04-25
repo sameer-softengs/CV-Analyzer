@@ -9,23 +9,23 @@
     "rewrites": [
         {
             "source": "/analyze",
-            "destination": "api.py"
+            "destination": "/api.py"
         },
         {
             "source": "/health",
-            "destination": "api.py"
+            "destination": "/api.py"
         },
         {
             "source": "/docs",
-            "destination": "api.py"
+            "destination": "/api.py"
         },
         {
             "source": "/openapi.json",
-            "destination": "api.py"
+            "destination": "/api.py"
         },
         {
-            "source": "/(.*)",
-            "destination": "/public/$1"
+            "source": "/",
+            "destination": "/index.html"
         }
     ]
 }
