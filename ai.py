@@ -64,6 +64,14 @@ DOMAIN_KEYWORD_HINTS = {
 }
 
 
+ACTION_VERBS = {
+    "achieved", "improved", "optimized", "reduced", "increased", "designed", "built",
+    "developed", "implemented", "led", "managed", "automated", "delivered", "launched",
+    "streamlined", "created", "owned", "scaled", "resolved", "accelerated", "mentored",
+    "architected", "engineered", "drove", "spearheaded", "transformed", "analyzed"
+}
+
+
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 LLM_CACHE = {}
 LLM_CACHE_MAX_ITEMS = 128
@@ -815,6 +823,50 @@ def achievements_score(cv_text):
     return min((density / 12) * 100, 100)
 
 
+def action_language_score(cv_text):
+    lines = [line.strip().lower() for line in cv_text.splitlines() if line.strip()]
+    bullet_like_lines = [
+        line for line in lines
+        if line.startswith(("-", "*", "•")) or re.match(r"^\d+[).]\s", line)
+    ]
+    corpus = bullet_like_lines if bullet_like_lines else lines
+    total = max(len(corpus), 1)
+
+    strong_lines = 0
+    unique_verbs = set()
+    for line in corpus:
+        tokens = re.findall(r"[a-z]+", line)
+        if not tokens:
+            continue
+        head_window = tokens[:5]
+        hits = [token for token in head_window if token in ACTION_VERBS]
+        if hits:
+            strong_lines += 1
+            unique_verbs.update(hits)
+
+    strength_ratio = strong_lines / total
+    diversity = min(len(unique_verbs) / 8.0, 1.0)
+    score = (strength_ratio * 78.0) + (diversity * 22.0)
+    return _clip(score, 0.0, 100.0)
+
+
+def contact_completeness_score(cv_text):
+    text = cv_text.lower()
+    has_email = bool(re.search(r"[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}", text))
+    has_phone = bool(re.search(r"(?:\+?\d[\d\s().-]{8,}\d)", text))
+    has_linkedin = "linkedin.com" in text
+    has_portfolio = bool(re.search(r"https?://", text))
+    has_location = bool(re.search(r"\b(?:city|state|country|address)\b", text))
+
+    score = 0.0
+    score += 36.0 if has_email else 0.0
+    score += 32.0 if has_phone else 0.0
+    score += 16.0 if has_linkedin else 0.0
+    score += 10.0 if has_portfolio else 0.0
+    score += 6.0 if has_location else 0.0
+    return _clip(score, 0.0, 100.0)
+
+
 def readability_score(cv_text):
     raw = cv_text
     text = cv_text.lower()
@@ -860,6 +912,10 @@ def detect_mistakes(cv_text, component_scores, missing_sections):
     # 3. Quantified achievements
     if component_scores.get("achievements", 100) < 40:
         mistakes.append("Weak Impact Evidence: Your bullets lack numbers, percentages, or data to prove impact.")
+    if component_scores.get("action_language", 100) < 45:
+        mistakes.append("Weak Action Language: Many bullets do not begin with strong action verbs tied to outcomes.")
+    if component_scores.get("contact_quality", 100) < 60:
+        mistakes.append("Incomplete Contact Signals: Add clear email, phone, and professional profile links.")
         
     # 4. Length/Readability
     words = len(text.split())
@@ -889,6 +945,12 @@ def build_recommendations(component_scores, missing_keywords, missing_sections):
     if "achievements" in weakest:
         recs.append("Convert responsibilities into impact bullets with numbers (%, revenue, time saved, volume, team size).")
 
+    if "action_language" in weakest:
+        recs.append("Start bullets with strong action verbs (Designed, Built, Optimized, Led) and pair each with measurable outcomes.")
+
+    if "contact_quality" in weakest:
+        recs.append("Strengthen contact block: include professional email, phone number, LinkedIn, and portfolio/GitHub URL.")
+
     if "readability" in weakest:
         recs.append("Simplify formatting and remove noisy symbols or OCR artifacts to improve parser readability.")
 
@@ -914,6 +976,8 @@ def analyze_cv_against_jd(cv_text, jd_text, keyword_limit=None, use_llm=True):
     structure, missing_sections = section_score(cv_text)
     achievement = achievements_score(cv_text)
     readability = readability_score(cv_text)
+    action_language = action_language_score(cv_text)
+    contact_quality = contact_completeness_score(cv_text)
 
     component_scores = {
         "relevance": relevance,
@@ -921,16 +985,20 @@ def analyze_cv_against_jd(cv_text, jd_text, keyword_limit=None, use_llm=True):
         "experience_evidence": experience_score,
         "structure": structure,
         "achievements": achievement,
-        "readability": readability
+        "readability": readability,
+        "action_language": action_language,
+        "contact_quality": contact_quality,
     }
 
     weights = {
-        "relevance": 0.35,
-        "hard_skills": 0.25,
-        "experience_evidence": 0.15,
+        "relevance": 0.28,
+        "hard_skills": 0.22,
+        "experience_evidence": 0.14,
         "structure": 0.10,
         "achievements": 0.10,
-        "readability": 0.05
+        "readability": 0.08,
+        "action_language": 0.05,
+        "contact_quality": 0.03,
     }
 
     deterministic_score = sum(component_scores[k] * weights[k] for k in component_scores)
@@ -1035,6 +1103,8 @@ def analyze_cv_ats(cv_text, use_llm=True):
     achievement = achievements_score(cv_text)
     readability = readability_score(cv_text)
     estimated_years = estimate_experience_years(cv_text)
+    action_language = action_language_score(cv_text)
+    contact_quality = contact_completeness_score(cv_text)
 
     experience_evidence = _clip((estimated_years / 5.0) * 100.0, 0.0, 100.0)
     component_scores = {
@@ -1042,12 +1112,16 @@ def analyze_cv_ats(cv_text, use_llm=True):
         "achievements": achievement,
         "readability": readability,
         "experience_evidence": experience_evidence,
+        "action_language": action_language,
+        "contact_quality": contact_quality,
     }
     weights = {
-        "structure": 0.30,
-        "achievements": 0.30,
-        "readability": 0.20,
-        "experience_evidence": 0.20,
+        "structure": 0.24,
+        "achievements": 0.24,
+        "readability": 0.18,
+        "experience_evidence": 0.16,
+        "action_language": 0.10,
+        "contact_quality": 0.08,
     }
     deterministic_score = round(
         min(max(sum(component_scores[k] * weights[k] for k in component_scores), 0), 100), 2

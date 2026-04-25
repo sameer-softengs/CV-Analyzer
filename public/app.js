@@ -1,11 +1,27 @@
 /* ── Orbit Resume Matcher — Frontend Logic ─────────────────────────── */
 
-const configuredApiUrl = window.APP_CONFIG && typeof window.APP_CONFIG.API_URL === "string"
-  ? window.APP_CONFIG.API_URL.trim()
-  : null;
-const API_URL = configuredApiUrl === null
-  ? "http://localhost:8000"
-  : configuredApiUrl.replace(/\/$/, "");
+function resolveApiUrlBase() {
+  const configuredApiUrl = window.APP_CONFIG && typeof window.APP_CONFIG.API_URL === "string"
+    ? window.APP_CONFIG.API_URL.trim()
+    : null;
+
+  if (configuredApiUrl !== null) {
+    return configuredApiUrl.replace(/\/$/, "");
+  }
+
+  const host = window.location.hostname;
+  const isLocalHost = host === "localhost" || host === "127.0.0.1" || host === "::1";
+  return isLocalHost ? "http://localhost:8000" : "";
+}
+
+function apiPath(path) {
+  return API_URL ? `${API_URL}${path}` : path;
+}
+
+const API_URL = resolveApiUrlBase();
+const MAX_CLIENT_UPLOAD_MB = 10;
+const REQUEST_TIMEOUT_MS = 45000;
+const NETWORK_RETRY_COUNT = 1;
 
 /* ── State ─────────────────────────────────────────────────────────── */
 const state = {
@@ -82,6 +98,53 @@ function createTag(text, cls = "") {
   el.className = ("tag " + cls).trim();
   el.textContent = text;
   return el;
+}
+
+async function parseErrorPayload(response) {
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    const data = await response.json();
+    if (data && typeof data.error === "string" && data.error.trim()) {
+      return data.error.trim();
+    }
+    return "Request failed.";
+  }
+
+  const text = await response.text();
+  return text && text.trim() ? text.trim().slice(0, 300) : "Request failed.";
+}
+
+async function fetchWithRetry(url, options = {}, retries = NETWORK_RETRY_COUNT) {
+  let attempt = 0;
+
+  while (attempt <= retries) {
+    const supportsAbort = typeof AbortController !== "undefined";
+    const controller = supportsAbort ? new AbortController() : null;
+    const timeoutId = supportsAbort
+      ? setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+      : null;
+
+    try {
+      return await fetch(url, {
+        ...options,
+        signal: controller ? controller.signal : undefined,
+      });
+    } catch (error) {
+      const isNetworkLikeError = error && (
+        error.name === "TypeError" ||
+        error.name === "AbortError" ||
+        /failed to fetch/i.test(String(error.message || ""))
+      );
+      if (!isNetworkLikeError || attempt >= retries) {
+        throw error;
+      }
+      attempt += 1;
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    }
+  }
 }
 
 /* ── Drag & Drop ───────────────────────────────────────────────────── */
@@ -366,8 +429,24 @@ function renderReport(report) {
 async function submitAnalysis(event) {
   event.preventDefault();
 
-  if (!refs.cvFile.files[0]) {
+  const file = refs.cvFile.files[0];
+  if (!file) {
     showToast("Please upload a resume to begin analysis.", true);
+    return;
+  }
+
+  if (!file.name.toLowerCase().endsWith(".pdf")) {
+    showToast("Only PDF files are supported.", true);
+    return;
+  }
+
+  if (file.size > MAX_CLIENT_UPLOAD_MB * 1024 * 1024) {
+    showToast(`File is too large. Please upload a PDF up to ${MAX_CLIENT_UPLOAD_MB} MB.`, true);
+    return;
+  }
+
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    showToast("No internet connection detected. Please reconnect and try again.", true);
     return;
   }
 
@@ -376,21 +455,33 @@ async function submitAnalysis(event) {
   refs.results.classList.add("hidden");
 
   const formData = new FormData();
-  formData.append("cv_file", refs.cvFile.files[0]);
+  formData.append("cv_file", file);
   formData.append("use_llm", state.llmMode);
 
   try {
-    const res = await fetch(`${API_URL}/analyze`, { method: "POST", body: formData });
-    const data = await res.json();
+    const res = await fetchWithRetry(apiPath("/analyze"), {
+      method: "POST",
+      body: formData,
+    });
 
-    if (!res.ok) throw new Error(data.error || "System error during analysis.");
+    if (!res.ok) {
+      const apiError = await parseErrorPayload(res);
+      throw new Error(apiError || "System error during analysis.");
+    }
+
+    const data = await res.json();
 
     renderReport(data.report);
     setStatus("Analysis completed successfully.");
     showToast("Intelligence report generated.");
   } catch (err) {
-    setStatus(err.message, true);
-    showToast(err.message, true);
+    const rawMessage = err && err.message ? err.message : "Request failed.";
+    const networkLike = /failed to fetch|network|abort/i.test(rawMessage);
+    const message = networkLike
+      ? "Network error on analysis request. Please retry on stable data/Wi-Fi and use a PDF under 10 MB."
+      : rawMessage;
+    setStatus(message, true);
+    showToast(message, true);
   } finally {
     setLoading(false);
   }
