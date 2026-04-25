@@ -4,28 +4,27 @@
         {
             "src": "api.py",
             "use": "@vercel/python"
+        },
+        {
+            "src": "public/**",
+            "use": "@vercel/static"
         }
     ],
-    "rewrites": [
+    "routes": [
         {
-            "source": "/analyze",
-            "destination": "/api.py"
+            "src": "^/(analyze|health|docs|openapi\\.json)$",
+            "dest": "/api.py"
         },
         {
-            "source": "/health",
-            "destination": "/api.py"
+            "handle": "filesystem"
         },
         {
-            "source": "/docs",
-            "destination": "/api.py"
+            "src": "^/$",
+            "dest": "/public/index.html"
         },
         {
-            "source": "/openapi.json",
-            "destination": "/api.py"
-        },
-        {
-            "source": "/",
-            "destination": "/index.html"
+            "src": "^/(.*)$",
+            "dest": "/public/$1"
         }
     ]
 }
