@@ -5,13 +5,35 @@ function resolveApiUrlBase() {
     ? window.APP_CONFIG.API_URL.trim()
     : null;
 
-  if (configuredApiUrl !== null) {
-    return configuredApiUrl.replace(/\/$/, "");
+  const host = window.location.hostname;
+  const protocol = window.location.protocol;
+  const port = window.location.port;
+  const isLocalHost = host === "localhost" || host === "127.0.0.1" || host === "::1";
+  const isLanAddress = /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host);
+  const isLocalLikeHost = isLocalHost || isLanAddress;
+
+  if (configuredApiUrl !== null && configuredApiUrl !== "") {
+    try {
+      const parsed = new URL(configuredApiUrl, window.location.origin);
+      const configuredHost = parsed.hostname;
+      const configuredIsLocal = configuredHost === "localhost" || configuredHost === "127.0.0.1" || configuredHost === "::1";
+
+      // Avoid sending mobile/LAN users to their own localhost.
+      if (!(isLanAddress && configuredIsLocal)) {
+        return configuredApiUrl.replace(/\/$/, "");
+      }
+    } catch (_) {
+      return configuredApiUrl.replace(/\/$/, "");
+    }
   }
 
-  const host = window.location.hostname;
-  const isLocalHost = host === "localhost" || host === "127.0.0.1" || host === "::1";
-  return isLocalHost ? "http://localhost:8000" : "";
+  if (isLocalLikeHost) {
+    const backendProtocol = protocol === "https:" ? "https:" : "http:";
+    const backendPort = port === "8501" ? "8000" : "8000";
+    return `${backendProtocol}//${host}:${backendPort}`;
+  }
+
+  return "";
 }
 
 function apiPath(path) {

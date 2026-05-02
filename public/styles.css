@@ -202,6 +202,13 @@ h3 { font-family: var(--font-head); font-size: 1.1rem; margin: 0 0 .6rem; }
   color: var(--text); box-shadow: 0 0 20px hsla(195, 85%, 65%, 0.2);
 }
 
+.mobile-hint {
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin-top: -0.25rem;
+}
+
 /* Button */
 #analyzeBtn {
   display: inline-flex; align-items: center; justify-content: center; gap: .8rem;

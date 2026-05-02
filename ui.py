@@ -32,7 +32,7 @@ def index() -> FileResponse:
 @app.get("/config.js", include_in_schema=False)
 def config_js() -> PlainTextResponse:
     """Inject runtime config so the browser knows the API URL."""
-    api_url = os.getenv("API_URL", "http://localhost:8000").rstrip("/")
+    api_url = os.getenv("API_URL", "").rstrip("/")
     body = f"window.APP_CONFIG = {{ API_URL: '{api_url}' }};\n"
     return PlainTextResponse(content=body, media_type="application/javascript")
 
