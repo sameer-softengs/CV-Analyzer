@@ -18,6 +18,7 @@ from ai import (
     assess_cv_document,
     build_debug_info_cv,
     extract_text_from_pdf,
+    get_last_pdf_parse_debug,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -142,7 +143,7 @@ async def analyze_endpoint(
 
             # 4. Analyze CV using ATS + optional LLM
             report = analyze_cv_ats(cv_text, use_llm=enable_llm)
-            debug = build_debug_info_cv(cv_text)
+            debug = build_debug_info_cv(cv_text, parsing_debug=get_last_pdf_parse_debug())
             report["cv_validation"] = val
 
         logger.info(

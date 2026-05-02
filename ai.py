@@ -7,6 +7,7 @@ import os
 import re
 from collections import Counter
 from functools import lru_cache
+from statistics import median
 from urllib.error import URLError, HTTPError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
@@ -75,6 +76,21 @@ ACTION_VERBS = {
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 LLM_CACHE = {}
 LLM_CACHE_MAX_ITEMS = 128
+LAST_PDF_PARSE_DEBUG = {}
+SECTION_ALIASES = {
+    "contact": ["contact", "contacts"],
+    "summary": ["summary", "profile", "professional summary", "about me", "objective"],
+    "skills": ["skills", "technical skills", "core skills", "competencies", "tech stack"],
+    "experience": ["experience", "work experience", "employment", "professional experience", "work history"],
+    "projects": ["projects", "project experience", "portfolio"],
+    "education": ["education", "academic background", "qualifications"],
+    "certifications": ["certifications", "certificates", "licenses"],
+    "achievements": ["achievements", "awards", "accomplishments"],
+}
+SECTION_ORDER = [
+    "contact", "summary", "skills", "experience", "projects",
+    "education", "certifications", "achievements", "other"
+]
 
 
 def _is_high_signal_keyword(token):
@@ -83,15 +99,293 @@ def _is_high_signal_keyword(token):
     return bool(re.search(r"[+#./\d]", token))
 
 
+def _normalize_block_text(text):
+    text = text.replace("\u00a0", " ")
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def _canonical_section_name(text):
+    normalized = re.sub(r"[^a-z ]+", " ", text.lower())
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    if not normalized:
+        return None
+
+    for section, aliases in SECTION_ALIASES.items():
+        if normalized in aliases:
+            return section
+        if len(normalized.split()) <= 4:
+            for alias in aliases:
+                if normalized.startswith(alias):
+                    return section
+    return None
+
+
+def _looks_like_contact_block(text):
+    lowered = text.lower()
+    if re.search(r"[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}", lowered):
+        return True
+    if re.search(r"(?:\+?\d[\d\s().-]{8,}\d)", lowered):
+        return True
+    if "linkedin" in lowered or "github" in lowered or "portfolio" in lowered:
+        return True
+    return False
+
+
+def _guess_section_for_block(text):
+    lowered = text.lower()
+    if _looks_like_contact_block(text):
+        return "contact"
+    if any(alias in lowered for alias in SECTION_ALIASES["education"]) or re.search(r"\b(b\.?sc|m\.?sc|bachelor|master|university|college|cgpa|gpa)\b", lowered):
+        return "education"
+    if any(alias in lowered for alias in SECTION_ALIASES["certifications"]) or "certified" in lowered:
+        return "certifications"
+    if any(alias in lowered for alias in SECTION_ALIASES["projects"]) or re.search(r"\b(project|github|portfolio)\b", lowered):
+        return "projects"
+    if any(alias in lowered for alias in SECTION_ALIASES["experience"]) or re.search(r"\b(experience|engineer|developer|manager|intern)\b", lowered):
+        return "experience"
+    if any(alias in lowered for alias in SECTION_ALIASES["summary"]) or (len(lowered.split()) > 20 and "years" in lowered):
+        return "summary"
+    if any(alias in lowered for alias in SECTION_ALIASES["achievements"]) or re.search(r"\b(award|achievement|accomplishment|honor)\b", lowered):
+        return "achievements"
+
+    tokens = tokenize(lowered)
+    tech_hits = sum(1 for token in tokens if token in TECH_KEYWORD_HINTS or token in DOMAIN_KEYWORD_HINTS)
+    comma_chunks = len([chunk for chunk in re.split(r"[,|/]", lowered) if chunk.strip()])
+    if tech_hits >= 3 or (comma_chunks >= 5 and len(tokens) <= 25):
+        return "skills"
+    return None
+
+
+def _extract_pdf_blocks(page):
+    page_dict = page.get_text("dict", sort=True)
+    blocks = []
+    for block in page_dict.get("blocks", []):
+        if block.get("type") != 0:
+            continue
+
+        lines = []
+        span_sizes = []
+        span_flags = []
+        for line in block.get("lines", []):
+            line_parts = []
+            for span in line.get("spans", []):
+                span_text = _normalize_block_text(span.get("text", ""))
+                if not span_text:
+                    continue
+                line_parts.append(span_text)
+                span_sizes.append(span.get("size", 0.0))
+                span_flags.append(span.get("flags", 0))
+            if line_parts:
+                lines.append(" ".join(line_parts))
+
+        text = _normalize_block_text("\n".join(lines))
+        if not text:
+            continue
+
+        x0, y0, x1, y1 = block.get("bbox", (0, 0, 0, 0))
+        blocks.append({
+            "text": text,
+            "x0": float(x0),
+            "y0": float(y0),
+            "x1": float(x1),
+            "y1": float(y1),
+            "width": float(x1) - float(x0),
+            "height": float(y1) - float(y0),
+            "max_font_size": max(span_sizes) if span_sizes else 0.0,
+            "avg_font_size": (sum(span_sizes) / len(span_sizes)) if span_sizes else 0.0,
+            "is_bold": any(flag & 16 for flag in span_flags),
+        })
+    return blocks
+
+
+def _detect_columns(blocks, page_width):
+    if len(blocks) < 4:
+        return {"two_column": False, "left": [], "right": [], "full": list(blocks)}
+
+    mid = page_width / 2.0
+    left = []
+    right = []
+    full = []
+    for block in blocks:
+        width_ratio = block["width"] / max(page_width, 1.0)
+        if width_ratio >= 0.72:
+            full.append(block)
+        elif block["x1"] <= mid + (page_width * 0.08):
+            left.append(block)
+        elif block["x0"] >= mid - (page_width * 0.08):
+            right.append(block)
+        else:
+            full.append(block)
+
+    two_column = len(left) >= 2 and len(right) >= 2
+    if not two_column:
+        return {"two_column": False, "left": [], "right": [], "full": list(blocks)}
+    return {"two_column": True, "left": left, "right": right, "full": full}
+
+
+def _sort_blocks_for_reading(blocks, page_width):
+    columns = _detect_columns(blocks, page_width)
+    if not columns["two_column"]:
+        return sorted(blocks, key=lambda item: (round(item["y0"], 1), round(item["x0"], 1))), columns
+
+    left = sorted(columns["left"], key=lambda item: (round(item["y0"], 1), round(item["x0"], 1)))
+    right = sorted(columns["right"], key=lambda item: (round(item["y0"], 1), round(item["x0"], 1)))
+    full = sorted(columns["full"], key=lambda item: (round(item["y0"], 1), round(item["x0"], 1)))
+    if not (left and right):
+        return sorted(blocks, key=lambda item: (round(item["y0"], 1), round(item["x0"], 1))), columns
+
+    top_narrow_y = min(left[0]["y0"], right[0]["y0"])
+    bottom_narrow_y = max(left[-1]["y1"], right[-1]["y1"])
+    header = [block for block in full if block["y0"] < top_narrow_y]
+    middle = [block for block in full if top_narrow_y <= block["y0"] <= bottom_narrow_y]
+    footer = [block for block in full if block["y0"] > bottom_narrow_y]
+
+    ordered = header + left + right + middle + footer
+    return ordered, columns
+
+
+def _is_heading_block(block, median_font_size):
+    lines = [line.strip() for line in block["text"].splitlines() if line.strip()]
+    if not lines:
+        return None
+
+    first_line = lines[0]
+    canonical = _canonical_section_name(first_line)
+    if canonical:
+        return canonical
+
+    if len(lines) == 1 and len(first_line.split()) <= 4:
+        canonical = _canonical_section_name(first_line.replace(":", ""))
+        if canonical:
+            return canonical
+
+    looks_big = block["max_font_size"] >= max(median_font_size * 1.18, median_font_size + 0.5)
+    looks_short = len(first_line.split()) <= 5
+    looks_upper = first_line == first_line.upper() and any(ch.isalpha() for ch in first_line)
+    if looks_short and (looks_big or looks_upper or block["is_bold"]):
+        return _canonical_section_name(first_line)
+    return None
+
+
+def _append_section_text(sections, section_name, text):
+    cleaned = _normalize_block_text(text)
+    if not cleaned:
+        return
+    bucket = sections.setdefault(section_name, [])
+    if cleaned not in bucket:
+        bucket.append(cleaned)
+
+
+def _render_sections(sections):
+    parts = []
+    for item in sections.get("header", []):
+        parts.append(item)
+
+    for section in SECTION_ORDER:
+        values = sections.get(section, [])
+        if not values:
+            continue
+        parts.append(section.upper())
+        parts.extend(values)
+
+    return "\n\n".join(part for part in parts if part and part.strip()).strip()
+
+
+def _score_extracted_cv_text(text):
+    normalized = normalize_text(text)
+    if not normalized:
+        return 0.0
+
+    words = len(normalized.split())
+    section_hits = sum(1 for aliases in SECTION_ALIASES.values() if any(alias in normalized for alias in aliases))
+    contact_hits = 2 if _looks_like_contact_block(text) else 0
+    date_hits = len(re.findall(r"\b(19\d{2}|20\d{2})\b", normalized))
+    return words + (section_hits * 28) + (contact_hits * 20) + min(date_hits, 8) * 3
+
+
 def extract_text_from_pdf(pdf_path):
+    global LAST_PDF_PARSE_DEBUG
+
     if not os.path.exists(pdf_path):
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
     doc = fitz.open(pdf_path)
-    text = " ".join(page.get_text() for page in doc)
-    if not text.strip():
-        raise ValueError("PDF has no extractable text. It might be scanned or image-only.")
-    return text
+    try:
+        plain_pages = []
+        layout_pages = []
+        total_blocks = 0
+        multi_column_pages = 0
+
+        for page_index, page in enumerate(doc, start=1):
+            plain_pages.append(page.get_text("text", sort=True))
+            blocks = _extract_pdf_blocks(page)
+            total_blocks += len(blocks)
+
+            if not blocks:
+                continue
+
+            ordered_blocks, column_info = _sort_blocks_for_reading(blocks, page.rect.width)
+            if column_info["two_column"]:
+                multi_column_pages += 1
+
+            font_sizes = [block["avg_font_size"] for block in ordered_blocks if block["avg_font_size"] > 0]
+            median_font_size = median(font_sizes) if font_sizes else 10.0
+
+            sections = {"header": [], "other": []}
+            current_section = "header"
+            for block in ordered_blocks:
+                heading_section = _is_heading_block(block, median_font_size)
+                if heading_section:
+                    current_section = heading_section
+                    lines = [line.strip() for line in block["text"].splitlines() if line.strip()]
+                    if len(lines) > 1:
+                        remainder = "\n".join(lines[1:])
+                        _append_section_text(sections, current_section, remainder)
+                    continue
+
+                target_section = current_section
+                guessed_section = _guess_section_for_block(block["text"])
+                if guessed_section and (current_section in {"header", "other"} or guessed_section != current_section):
+                    target_section = guessed_section
+                _append_section_text(sections, target_section, block["text"])
+
+            layout_page_text = _render_sections(sections)
+            if layout_page_text:
+                layout_pages.append(layout_page_text)
+
+        plain_text = "\n\n".join(page for page in plain_pages if page and page.strip()).strip()
+        layout_text = "\n\n".join(page for page in layout_pages if page and page.strip()).strip()
+
+        plain_score = _score_extracted_cv_text(plain_text)
+        layout_score = _score_extracted_cv_text(layout_text)
+        use_layout = bool(layout_text) and (
+            layout_score >= plain_score or
+            multi_column_pages > 0 or
+            len(layout_text) >= max(int(len(plain_text) * 0.7), 1)
+        )
+
+        text = layout_text if use_layout else plain_text
+        text = _normalize_block_text(text)
+        if not text.strip():
+            raise ValueError("PDF has no extractable text. It might be scanned or image-only.")
+
+        LAST_PDF_PARSE_DEBUG = {
+            "strategy": "layout_aware" if use_layout else "plain_text_fallback",
+            "pages": len(doc),
+            "text_blocks": total_blocks,
+            "multi_column_pages": multi_column_pages,
+            "plain_score": round(plain_score, 2),
+            "layout_score": round(layout_score, 2),
+        }
+        return text
+    finally:
+        doc.close()
+
+
+def get_last_pdf_parse_debug():
+    return dict(LAST_PDF_PARSE_DEBUG)
 
 
 def _extract_text_from_json_payload(payload):
@@ -1200,7 +1494,7 @@ def analyze_cv_ats(cv_text, use_llm=True):
     }
 
 
-def build_debug_info_cv(cv_text, preview_len=700):
+def build_debug_info_cv(cv_text, preview_len=700, parsing_debug=None):
     normalized_cv = normalize_text(cv_text)
     cv_tokens = [t for t in tokenize(normalized_cv) if t not in STOP_WORDS]
     year_estimate, year_details = estimate_experience_years(cv_text, return_details=True)
@@ -1219,6 +1513,7 @@ def build_debug_info_cv(cv_text, preview_len=700):
             **year_details
         },
         "section_detection": section_status,
+        "pdf_parsing": parsing_debug or {},
     }
 
 
